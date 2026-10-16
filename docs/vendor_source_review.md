@@ -71,8 +71,8 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 | `eth.py` | `tests/hw/test_eth.py` | `network.WIZNET5K(SPI(3), WIZ_CS, WIZ_RST, WIZ_INT)`, 고정 IP, 10 s 링크 대기 제한, `eth_up()` 제공 |
 | `modbus/uModBusTCPSlave.py`, `modbus/uModBusConst.py` | `modbus.py` | CRC-16, `DataMap`, `process_pdu`, `RtuSlave`, `MbapReader`, `TcpSlave` |
 | `modbus/uModBusTCPSlave.py`, `modbus/main.py` | `tests/hw/test_modbus.py` | 보드 통합 시험(RTU + TCP 동시 실행, 입출력 동기화) |
-| `modbus/uModBusTCPPoll.py`, `modbus/uModBusFunctions.py`, `modbus/main.py` | `tools/mb_tcp_check.py` | PC 측 왕복 시험 29개 항목(FC01~06·0F·10, 예외 01/02/03, 파이프라이닝, 분할 송신, Unit ID 0xFF) |
-| (신규) | `tests/host/test_crc.py`, `test_pdu.py`, `test_rtu.py`, `test_tcp.py` | CPython 단위 시험 45개 |
+| `modbus/uModBusTCPPoll.py`, `modbus/uModBusFunctions.py`, `modbus/main.py` | `tools/mb_tcp_check.py` | PC 측 왕복 시험 31개 항목(FC01~06·0F·10, LED04~07 릴레이 연동, 예외 01/02/03, 파이프라이닝, 분할 송신, Unit ID 0xFF) |
+| (신규) | `tests/host/test_crc.py`, `test_pdu.py`, `test_rtu.py`, `test_tcp.py` | CPython 단위 시험 49개 |
 | (신규) | `.github/workflows/firmware-check.yml` | mpy-cross 컴파일과 호스트 단위 시험 |
 
 ### 3.1 사용한 stm32 API와 확인 근거
@@ -122,7 +122,7 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 | # | 항목 | 현재 처리 | 확인 방법 |
 |---|---|---|---|
 | 1 | ~~`mpconfigboard.h` 주석 상충~~ **해소**: "SW2 is wired to NRST"와 "SW1/SW2 = PD14/PD15" | 두 주석 모두 맞음. 이름이 겹친 것임. 부품 번호 SW2는 리셋 택트 스위치(TS-1105, NRST, R14 10 kΩ 풀업, C20 0.1 µF). pins.csv의 SW1/SW2는 DIP 스위치 SW1(DS02, 2극)의 1·2번 접점(넷 PD14_SW1, PD15_SW2)이며 외부 10 kΩ 풀업(R7·R8), ON = 0 | 회로도 2쪽에서 확인 완료. 보드 정의 주석 문구 정정 여부는 별도 결정(이번 작업에서는 수정하지 않음) |
-| 2 | HR1 비트 배치 | bit n = Coil n(bit0~8 LED01~09, bit9~12 Relay01~04) [가정] | 프로토콜 20260928 문서 확인 |
+| 2 | HR1 비트 배치 | bit n = Coil n(bit0~8 LED01~09, bit9~12 Relay01~04) [가정]. bit3~6은 LED04~07 연동에 따라 bit9~12와 같음 | 프로토콜 20260928 문서 확인 |
 | 3 | HR2~14(예약 영역) 동작 | 읽으면 0, 쓰면 예외 02 [가정] | 프로토콜 문서 확인 |
 | 4 | DI 값 극성 | 스위치 ON(핀 0)이면 DI = 1 [가정, `tests/hw/test_modbus.py`] | 프로토콜 문서 확인 |
 | 5 | IR0·IR1 단위·스케일 | 회로 확인: 두 입력 모두 0~3.3 V 전압 입력이며 TLV9001 단위 이득 버퍼 → R 1 kΩ·C 0.1 µF(fc 1.59 kHz) → BAT54S 클램프를 거쳐 PA0/PA1로 들어감. 션트가 없어 IR1 "전류"는 외부 트랜스듀서가 내는 전압임(4~20 mA 직접 입력 불가). 레지스터 값은 ADC 12비트 원시값(0~4095) [가정] | 공학 단위 환산식은 외부 센서 사양과 프로토콜 문서로 확인 |
@@ -137,7 +137,7 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 | 14 | `ADC.read_uv()` 지원 여부 | 사용하지 않음 | stm32 `mpconfigport.h`와 실보드에서 확인 |
 | 15 | `mpconfigboard.mk`의 `FROZEN_MANIFEST = $(BOARD_DIR)/manifest.py` | 첨부 zip에 `manifest.py`가 없음 | 보드 디렉터리 원본 확인 |
 | 16 | DAC 출력 범위 | 회로 확인: PA4 → TLV9001 외부 버퍼 → R47 100 Ω → DAC_OUT(PESD3V3 보호). `pyb.DAC.write()`는 기본값으로 내부 출력 버퍼를 끔(stm32 `dac.c` 확인) → 0~VREF+ 전 범위 출력 | 실보드에서 0·4095 코드의 출력 전압 측정 |
-| 17 | LED_04~07 표시 동작 | 회로 실크상 LED_04~07은 "RELAY 4CH" 표시등이나, 데이터맵에서는 Coil 3~6(LED)과 Coil 9~12(릴레이)가 독립임. 현재는 데이터맵대로 독립 제어함 | 릴레이 상태와 연동할지 결정 필요(데이터맵 동작 변경에 해당) |
+| 17 | ~~LED_04~07 표시 동작~~ **결정됨(연동)** | 회로 실크 "RELAY 4CH"에 맞춰 Coil 3~6(LED04~07)이 Coil 9~12(Relay01~04) 상태를 항상 따라감(`modbus.RELAY_LED_COILS`, `DataMap.sync_relay_leds()`). Coil 3~6 쓰기(FC05·FC0F)는 정상 응답하되 값은 릴레이 상태로 덮어씀(예외 없음, FC0F 일괄 쓰기 호환). HR1 비트 3~6도 같은 값 | 프로토콜 문서 20260928에 연동 동작 반영 필요 |
 | 18 | WIZ550io 초기화 타이밍 | 드라이버(`active(True)`)는 RDY를 보지 않고 리셋 해제 후 160 ms 고정 대기 후 접근함. 커뮤니티 문서 권고는 "RDY High 후 ≥ 150 ms" [미확인] | RSTn·RDY 파형 측정, `test_eth.py`가 출력한 MAC과 모듈 라벨 MAC 비교 |
 
 ---
@@ -147,9 +147,9 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 | 검증 | 명령 | 결과 |
 |---|---|---|
 | mpy-cross 컴파일 | `mpy-cross -o <out>.mpy <file>.py` (레포의 .py 전체) | 14개 파일 통과 |
-| 호스트 단위 시험(CPython 3.13) | `python3 -m unittest discover -s tests/host -v` | 45개 통과 |
-| TCP 루프백(CPython 슬레이브) | `test_tcp.LoopbackTest.test_full_check` | `mb_tcp_check` 29개 항목 통과 |
-| TCP 루프백(MicroPython unix 포트 슬레이브, 참고) | unix 포트에서 `modbus.TcpSlave` 실행 후 `python3 tools/mb_tcp_check.py 127.0.0.1 --port 15021` | 29개 통과, 실패 0. stm32/lwIP가 아니므로 실보드 검증을 대신하지 못함 |
+| 호스트 단위 시험(CPython 3.13) | `python3 -m unittest discover -s tests/host -v` | 49개 통과 |
+| TCP 루프백(CPython 슬레이브) | `test_tcp.LoopbackTest.test_full_check` | `mb_tcp_check` 31개 항목 통과 |
+| TCP 루프백(MicroPython unix 포트 슬레이브, 참고) | unix 포트에서 `modbus.TcpSlave` 실행 후 `python3 tools/mb_tcp_check.py 127.0.0.1 --port 15022` | 31개 통과, 실패 0. stm32/lwIP가 아니므로 실보드 검증을 대신하지 못함 |
 | 실보드 | `tests/hw/*.py`, `tools/mb_tcp_check.py <보드 IP>` | **미실시** |
 
 ### 7.1 실보드 확인 절차 (권장 순서)

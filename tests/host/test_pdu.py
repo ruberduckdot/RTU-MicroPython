@@ -29,8 +29,8 @@ class PduTest(unittest.TestCase):
     def test_read_coils_packing(self):
         self.dm.coils[0] = 1
         self.dm.coils[8] = 1
-        self.dm.coils[12] = 1
-        self.assertEqual(self.run_pdu(req("BHH", 1, 0, 13)), bytes([1, 2, 0x01, 0x11]))
+        self.dm.coils[12] = 1  # Relay04 → LED07(Coil 6)도 1로 읽힘
+        self.assertEqual(self.run_pdu(req("BHH", 1, 0, 13)), bytes([1, 2, 0x41, 0x11]))
 
     def test_read_discrete_inputs(self):
         self.dm.di[1] = 1
@@ -43,7 +43,7 @@ class PduTest(unittest.TestCase):
         self.assertEqual(resp[:2], bytes([3, 32]))
         regs = struct.unpack(">16H", resp[2:])
         self.assertEqual(regs[0], 4095)
-        self.assertEqual(regs[1], 1 << 9)
+        self.assertEqual(regs[1], (1 << 9) | (1 << 3))  # Relay01 + 연동된 LED04
         self.assertEqual(regs[2:15], (0,) * 13)
         self.assertEqual(regs[15], 255)
 
@@ -81,6 +81,33 @@ class PduTest(unittest.TestCase):
         resp = self.run_pdu(req("BHHBH", 0x10, 0, 1, 2, 77))
         self.assertEqual(resp, req("BHH", 0x10, 0, 1))
         self.assertEqual(self.dm.dac, 77)
+
+    # --- LED04~07 ↔ 릴레이 연동 ------------------------------------------
+    def test_relay_led_follow_fc05(self):
+        for led, relay in mb.RELAY_LED_COILS:
+            self.run_pdu(req("BHH", 5, relay, 0xFF00))
+            self.assertEqual(self.dm.coils[led], 1, "Coil %d" % led)
+            self.run_pdu(req("BHH", 5, relay, 0x0000))
+            self.assertEqual(self.dm.coils[led], 0, "Coil %d" % led)
+
+    def test_led_coil_write_ignored(self):
+        # LED04 단독 쓰기: 정상 에코 응답, 값은 Relay01 상태(OFF)로 유지
+        pdu = req("BHH", 5, 3, 0xFF00)
+        self.assertEqual(self.run_pdu(pdu), pdu)
+        self.assertEqual(self.dm.coils[3], 0)
+        self.assertEqual(self.run_pdu(req("BHH", 1, 3, 1)), bytes([1, 1, 0x00]))
+
+    def test_relay_led_follow_fc0f(self):
+        # Coil 0~12 일괄 쓰기에서 LED 비트(3~6)=0, 릴레이 비트(9~12)=1
+        resp = self.run_pdu(req("BHHBBB", 0x0F, 0, 13, 2, 0x00, 0x1E))
+        self.assertEqual(resp, req("BHH", 0x0F, 0, 13))
+        self.assertEqual(list(self.dm.coils[3:7]), [1, 1, 1, 1])
+        self.assertEqual(self.dm.io_bits(), 0x1E78)
+
+    def test_relay_led_follow_direct_write(self):
+        # 앱이 coils를 직접 바꿔도 다음 요청 처리 시 연동됨
+        self.dm.coils[11] = 1
+        self.assertEqual(self.run_pdu(req("BHH", 1, 5, 1)), bytes([1, 1, 0x01]))
 
     # --- 예외 응답 ---------------------------------------------------------
     def test_illegal_function(self):

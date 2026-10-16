@@ -95,7 +95,7 @@ class LoopbackTest(unittest.TestCase):
         out = []
         passed, failed = mb_tcp_check.run_checks("127.0.0.1", self.slave.port, 255, True, 2.0, out.append)
         self.assertEqual(failed, 0, "\n".join(out))
-        self.assertEqual(passed, 29)  # 읽기 5 + 쓰기 6 + 예외 15 + 스트림 3
+        self.assertEqual(passed, 31)  # 읽기 5 + 쓰기 8 + 예외 15 + 스트림 3
         # 시험 후 원래 값으로 복원되어야 함
         self.assertEqual(list(self.dm.coils), [0] * 13)
         self.assertEqual(self.dm.dac, 0)

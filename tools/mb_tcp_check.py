@@ -8,6 +8,7 @@
 
 시험 항목:
     - FC01·02·03·04 읽기, FC05·06·0F·10 쓰기 후 되읽기 확인
+    - LED04~07(Coil 3~6)의 릴레이(Coil 9~12) 상태 연동, LED04~07 단독 쓰기 무시
     - 예외 코드 01(미지원 FC)·02(주소 범위)·03(값·수량·길이)
     - 한 번의 송신에 요청 2개(파이프라이닝), 요청을 둘로 나눈 부분 송신
 쓰기 시험은 LED·릴레이·DAC 출력을 실제로 바꿈. 시험이 끝나면 시험 전
@@ -30,6 +31,15 @@ N_IR = 2
 HR_DAC = 0
 HR_IO_BITS = 1
 HR_UNIT_ID = 15
+# LED04~07(Coil 3~6)은 Relay01~04(Coil 9~12) 상태를 따라감(쓰기 무시)
+RELAY_LED_COILS = ((3, 9), (4, 10), (5, 11), (6, 12))
+
+
+def mirror_relay_leds(coils):
+    out = list(coils)
+    for led, relay in RELAY_LED_COILS:
+        out[led] = out[relay]
+    return out
 
 
 class ModbusException(Exception):
@@ -239,8 +249,21 @@ def run_checks(host, port=502, unit=255, write=True, timeout=2.0, log=print):
             def fc0f():
                 pattern = [(i + 1) % 2 for i in range(N_COILS)]
                 cli.write_multiple_coils(0, pattern)
-                _eq(cli.read_coils(0, N_COILS), pattern, "Coil 되읽기")
+                _eq(cli.read_coils(0, N_COILS), mirror_relay_leds(pattern), "Coil 되읽기")
                 hr1_matches_coils()
+
+            def relay_led_follow():
+                # 릴레이 1·3 ON, 2·4 OFF → LED04·06 ON, LED05·07 OFF
+                for k, on in enumerate((1, 0, 1, 0)):
+                    cli.write_single_coil(9 + k, on)
+                _eq(cli.read_coils(3, 4), [1, 0, 1, 0], "LED04~07")
+                for k in range(4):
+                    cli.write_single_coil(9 + k, 0)
+                _eq(cli.read_coils(3, 4), [0, 0, 0, 0], "LED04~07")
+
+            def led_write_ignored():
+                cli.write_single_coil(3, 1)  # 정상 응답이어야 함
+                _eq(cli.read_coils(3, 1)[0], 0, "LED04(릴레이 OFF 상태 유지)")
 
             def fc06():
                 cli.write_single_register(HR_DAC, 1234)
@@ -268,6 +291,8 @@ def run_checks(host, port=502, unit=255, write=True, timeout=2.0, log=print):
 
             r.check("FC05 Coil0 쓰기·되읽기", fc05)
             r.check("FC0F Coil 0~12 쓰기·되읽기", fc0f)
+            r.check("릴레이 → LED04~07 연동", relay_led_follow)
+            r.check("LED04 단독 쓰기 무시(정상 응답)", led_write_ignored)
             r.check("FC06 HR0=1234 쓰기·되읽기", fc06)
             r.check("FC10 HR0=2048 쓰기·되읽기", fc10)
             r.check("FC10 일부 주소 오류 시 전체 미반영", fc10_atomic)

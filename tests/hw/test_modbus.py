@@ -8,6 +8,7 @@
 #   TCP: python3 tools/mb_tcp_check.py 192.168.0.100
 #   RTU: 9600 8N1, Unit ID 255로 Modbus 마스터 프로그램에서 FC01~06·0F·10 확인
 # 판정: mb_tcp_check.py 실패 0건, 쓰기 시 LED·릴레이·DAC 출력이 실제로 바뀜
+#       LED_04~07은 RELAY1~4 상태를 따라 점등됨(modbus.DataMap.sync_relay_leds)
 #
 # 원본과의 차이:
 #   - 블로킹 accept/recv와 1000개 배열 대신 비차단 슈퍼루프와 데이터맵 크기만 사용

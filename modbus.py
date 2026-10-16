@@ -3,6 +3,7 @@
 # 대상: IOTPLUS RTU MCU R1.0a (STM32F429, MicroPython stm32 포트)
 # 데이터맵: 프로토콜 20260928, 0-based 주소
 #   Coil 0~8 = LED01~09, Coil 9~12 = Relay01~04
+#   (LED04~07 = Coil 3~6은 릴레이 표시등으로 Relay01~04 상태를 따라감)
 #   DI   0~1 = SW1, SW2
 #   HR0  = DAC 설정값(0~4095, R/W)
 #   HR1  = LED·Relay 비트필드(R)
@@ -61,6 +62,8 @@ EX_GATEWAY_TARGET_FAILED = 0x0B
 # 데이터맵 크기 (프로토콜 20260928)
 # ---------------------------------------------------------------------------
 N_COILS = 13
+# 릴레이 표시등 연동: (LED Coil, Relay Coil). 회로 실크 "RELAY 4CH" = LED_04~07
+RELAY_LED_COILS = ((3, 9), (4, 10), (5, 11), (6, 12))
 N_DISCRETE_INPUTS = 2
 N_HOLDING_REGISTERS = 16
 N_INPUT_REGISTERS = 2
@@ -133,6 +136,16 @@ class DataMap:
         self.dac = 0
         self.unit_id = unit_id
         self.changed = 0
+
+    def sync_relay_leds(self):
+        """LED04~07(Coil 3~6)을 Relay01~04(Coil 9~12) 상태로 맞춤.
+
+        Coil 3~6에 대한 원격 쓰기는 정상 응답하되 이 함수가 릴레이 상태로
+        덮어씀. 앱이 coils를 직접 바꾼 경우에도 다음 요청 처리 시 맞춰짐.
+        """
+        c = self.coils
+        for led, relay in RELAY_LED_COILS:
+            c[led] = c[relay]
 
     def io_bits(self):
         """HR1 값: 비트 n = Coil n (bit0~8 LED01~09, bit9~12 Relay01~04)."""
@@ -224,12 +237,15 @@ def _read_regs(fc, pdu, size, getter):
 def process_pdu(dm, pdu):
     """요청 PDU(기능 코드부터)를 처리하고 응답 PDU를 반환함.
 
+    처리 전후로 LED04~07(Coil 3~6)을 릴레이 상태에 맞춤(sync_relay_leds).
+
     검사 순서는 Modbus 규격(기능 코드 → 수량·길이 → 주소 → 값)을 따름.
     쓰기 요청은 모든 값을 검사한 뒤에만 반영함(부분 반영 없음).
     """
     if len(pdu) < 1:
         return None
     fc = pdu[0]
+    dm.sync_relay_leds()
 
     if fc == FC_READ_COILS:
         return _read_bits(fc, pdu, dm.coils, N_COILS)
@@ -253,6 +269,7 @@ def process_pdu(dm, pdu):
         if addr >= N_COILS:
             return exception_pdu(fc, EX_ILLEGAL_DATA_ADDRESS)
         dm.coils[addr] = 1 if value else 0
+        dm.sync_relay_leds()
         dm.changed |= CHG_COILS
         return bytes(pdu)
 
@@ -278,6 +295,7 @@ def process_pdu(dm, pdu):
             return exception_pdu(fc, EX_ILLEGAL_DATA_ADDRESS)
         for i in range(qty):
             dm.coils[start + i] = (pdu[6 + (i >> 3)] >> (i & 7)) & 1
+        dm.sync_relay_leds()
         dm.changed |= CHG_COILS
         return struct.pack(">BHH", fc, start, qty)
 
