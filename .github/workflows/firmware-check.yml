@@ -1,0 +1,59 @@
+# 펌웨어 정적 검사: 모든 .py를 mpy-cross로 컴파일하고 호스트 단위 시험을 실행함
+name: firmware-check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # 보드 펌웨어 기준(공식 master)과 맞춘 MicroPython 커밋. 펌웨어 갱신 시 함께 변경함
+  MICROPYTHON_REF: 9e348d293c58ee6d2b8a581be3a199c2b7e2f145
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: MicroPython 소스 받기(고정 커밋)
+        run: |
+          git init -q "$RUNNER_TEMP/micropython"
+          cd "$RUNNER_TEMP/micropython"
+          git remote add origin https://github.com/micropython/micropython.git
+          git fetch -q --depth 1 origin "$MICROPYTHON_REF"
+          git checkout -q FETCH_HEAD
+
+      - name: mpy-cross 빌드
+        run: |
+          make -C "$RUNNER_TEMP/micropython/mpy-cross" -j"$(nproc)"
+          "$RUNNER_TEMP/micropython/mpy-cross/build/mpy-cross" --version
+
+      - name: 모든 .py mpy-cross 컴파일
+        run: |
+          MPYC="$RUNNER_TEMP/micropython/mpy-cross/build/mpy-cross"
+          OUT="$RUNNER_TEMP/mpy"
+          status=0
+          count=0
+          while IFS= read -r f; do
+            mkdir -p "$OUT/$(dirname "$f")"
+            if "$MPYC" -o "$OUT/${f%.py}.mpy" "$f"; then
+              echo "통과: $f"
+            else
+              echo "::error file=$f::mpy-cross 컴파일 실패"
+              status=1
+            fi
+            count=$((count + 1))
+          done < <(git ls-files '*.py')
+          echo "컴파일 대상 ${count}개"
+          test "$count" -gt 0
+          exit $status
+
+      - name: 호스트 단위 시험(CPython)
+        run: python -m unittest discover -s tests/host -v
