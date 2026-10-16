@@ -4,6 +4,7 @@
 - 적용 대상: IOTPLUS RTU MCU R1.0a(EDGEON EG-C08A), STM32F429, MicroPython stm32 포트(공식 master), 보드 정의 `RTU_MCU_R10`
 - API 확인 기준: MicroPython 공식 master 커밋 `9e348d293c`(v1.30.0-preview)의 `ports/stm32`·`extmod` 소스. 보드 정의는 사용자가 첨부한 `mpconfigboard.h/.mk`, `pins.csv`, `stm32f429_af.csv`를 기준으로 함. 보드 정의 파일은 수정하지 않았고 이 레포에 커밋하지도 않음.
 - 전제: 레포에는 1단계 파일(config.py, hw.py, modbus.py, setproto.py, main.py, test_hw.py)이 없었음. 그래서 기존 파일과 비교하는 대신 신규로 작성함. 이후 1단계 파일과 병합할 때 `modbus.py`의 이름과 역할이 겹치는지 확인이 필요함.
+- 회로도 대조: IOTPLUS-SCH-RTU-MCU Rev 1.0(2026-08-21, 6쪽)으로 결선을 확인함. 결과는 6절과 8절에 반영함.
 - 실보드 시험: **미실시**. 이 문서의 산출물은 모두 "호스트 시험 통과" 상태임. "실보드 검증 완료" 상태가 아님.
 
 ---
@@ -17,7 +18,7 @@
 | 3 | `DO.py` | 부분 적용 | 원본은 DO 2채널(GPIO15/16)임. 우리 보드의 RELAY1~4(High = ON)로 바꾸고, `sleep` 대신 ticks 기반 대기를 사용함 |
 | 4 | `led_flash.py` | 부분 적용 | 원본은 LED 2개(GPIO45/21, High = 점등)임. 우리 보드는 LED_01~09이고 Low = 점등임 |
 | 5 | `RS485.py` | 부분 적용 | UART 송수신 패턴만 사용함. stm32 UART2는 핀이 보드에 고정(PA2/PA3)되어 있어 `tx=`/`rx=`를 지정하지 않음. 방향 제어는 MAX13488이 자동으로 함 |
-| 6 | `RS232.py` | 적용 불가 | RS232 트랜시버가 실장되어 있지 않음. USART1은 CH340C를 거쳐 REPL과 설정 프로그램이 함께 쓰므로 시험 스크립트가 점유하면 REPL이 끊김. 코드도 RS485.py와 같음 |
+| 6 | `RS232.py` | 적용 불가 | RS232 트랜시버가 실장되어 있지 않음(회로도에서 확인, LED 실크의 "RS485 / RS232" 표기만 있음). USART1은 CH340C를 거쳐 REPL과 설정 프로그램이 함께 쓰므로 시험 스크립트가 점유하면 REPL이 끊김. 코드도 RS485.py와 같음 |
 | 7 | `eth.py` | 부분 적용 | `network.LAN(PHY_W5500)`은 ESP32 전용이므로 stm32의 `network.WIZNET5K`로 바꿈. 연결·고정 IP·링크 대기·타임아웃 패턴만 반영함. MAC 강제 설정과 TCP 클라이언트 무한 루프는 반영하지 않음. 원본에는 정의되지 않은 변수 `client_socket` 결함이 있음 |
 | 8 | `wlan_tcp.py` | 적용 불가 | WLAN 하드웨어가 없음. 블로킹 소켓을 쓰는 무한 루프 TCP 클라이언트라 슈퍼루프 구조와 맞지 않음 |
 | 9 | `4g.py` | 적용 불가 | 4G 모뎀이 실장되어 있지 않음. 4G 기능은 범위 밖임 |
@@ -95,7 +96,7 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 
 | 원본 | 사유 |
 |---|---|
-| `RS232.py` | RS232 트랜시버가 실장되어 있지 않음. USART1은 REPL·설정 프로그램이 함께 씀 |
+| `RS232.py` | RS232 트랜시버가 실장되어 있지 않음(회로도 확인). USART1은 REPL·설정 프로그램이 함께 씀 |
 | `wlan_tcp.py` | WLAN 하드웨어가 없음 |
 | `4g.py` | 4G 모뎀이 실장되어 있지 않음. 기능 범위 밖임 |
 | `lora.py` | LoRa 모듈이 실장되어 있지 않음. 기능 범위 밖임 |
@@ -120,12 +121,12 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 
 | # | 항목 | 현재 처리 | 확인 방법 |
 |---|---|---|---|
-| 1 | `mpconfigboard.h` 주석이 서로 상충함: "SW2 is wired to NRST"와 "SW1/SW2 = PD14/PD15" | `pins.csv` 별칭 `SW1`/`SW2`(PD14/PD15)를 사용함 | 회로도 IOTPLUS-SCH-RTU-MCU Rev 1.0에서 SW2 결선을 확인. 보드 정의 주석 정정 여부는 별도로 결정 |
+| 1 | ~~`mpconfigboard.h` 주석 상충~~ **해소**: "SW2 is wired to NRST"와 "SW1/SW2 = PD14/PD15" | 두 주석 모두 맞음. 이름이 겹친 것임. 부품 번호 SW2는 리셋 택트 스위치(TS-1105, NRST, R14 10 kΩ 풀업, C20 0.1 µF). pins.csv의 SW1/SW2는 DIP 스위치 SW1(DS02, 2극)의 1·2번 접점(넷 PD14_SW1, PD15_SW2)이며 외부 10 kΩ 풀업(R7·R8), ON = 0 | 회로도 2쪽에서 확인 완료. 보드 정의 주석 문구 정정 여부는 별도 결정(이번 작업에서는 수정하지 않음) |
 | 2 | HR1 비트 배치 | bit n = Coil n(bit0~8 LED01~09, bit9~12 Relay01~04) [가정] | 프로토콜 20260928 문서 확인 |
 | 3 | HR2~14(예약 영역) 동작 | 읽으면 0, 쓰면 예외 02 [가정] | 프로토콜 문서 확인 |
 | 4 | DI 값 극성 | 스위치 ON(핀 0)이면 DI = 1 [가정, `tests/hw/test_modbus.py`] | 프로토콜 문서 확인 |
-| 5 | IR0·IR1 단위·스케일 | ADC 12비트 원시값(0~4095) [가정]. 분압비·션트 환산 미적용 | 회로도의 아날로그 전단 확인 |
-| 6 | ADC 기준 전압 | 3.3 V [가정] | VREF+ 실측 |
+| 5 | IR0·IR1 단위·스케일 | 회로 확인: 두 입력 모두 0~3.3 V 전압 입력이며 TLV9001 단위 이득 버퍼 → R 1 kΩ·C 0.1 µF(fc 1.59 kHz) → BAT54S 클램프를 거쳐 PA0/PA1로 들어감. 션트가 없어 IR1 "전류"는 외부 트랜스듀서가 내는 전압임(4~20 mA 직접 입력 불가). 레지스터 값은 ADC 12비트 원시값(0~4095) [가정] | 공학 단위 환산식은 외부 센서 사양과 프로토콜 문서로 확인 |
+| 6 | ADC 기준 전압 | 회로 확인: VREF+ = VDDA(+3V3 → FB1 → R16 47 Ω, C21 1 µF + C22 0.1 µF), 즉 LD1117-3.3 출력이 기준임. 정확도는 LDO 편차를 따름 | VREF+ 실측. 보정에는 `machine.ADC(ADC.CORE_VREF)`(stm32 `machine_adc.c`에서 존재 확인)를 쓸 수 있음. VREFINT 교정값 주소는 [미확인] |
 | 7 | RS485 통신 조건 | 9600 bps 8N1 [가정] | 프로토콜 문서와 설정 프로그램 확인 |
 | 8 | TCP Unit ID 정책 | 자국 ID·0xFF·0은 응답, 그 외에는 예외 0x0B [가정] | 프로토콜 문서와 상위 SCADA 설정 확인 |
 | 9 | Unit ID 범위 248~255 | 데이터맵대로 유지함. Modbus 시리얼 규격에서 개별 주소는 1~247이고 248~255는 예약 범위임. 일부 RTU 마스터가 248 이상의 주소를 거부할 수 있음 | 현장 마스터 장비로 확인 |
@@ -135,6 +136,9 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 | 13 | lwIP 비차단 `send()`의 부분 송신 | 응답이 잘리면 연결을 닫음 | 실보드 부하 시험 |
 | 14 | `ADC.read_uv()` 지원 여부 | 사용하지 않음 | stm32 `mpconfigport.h`와 실보드에서 확인 |
 | 15 | `mpconfigboard.mk`의 `FROZEN_MANIFEST = $(BOARD_DIR)/manifest.py` | 첨부 zip에 `manifest.py`가 없음 | 보드 디렉터리 원본 확인 |
+| 16 | DAC 출력 범위 | 회로 확인: PA4 → TLV9001 외부 버퍼 → R47 100 Ω → DAC_OUT(PESD3V3 보호). `pyb.DAC.write()`는 기본값으로 내부 출력 버퍼를 끔(stm32 `dac.c` 확인) → 0~VREF+ 전 범위 출력 | 실보드에서 0·4095 코드의 출력 전압 측정 |
+| 17 | LED_04~07 표시 동작 | 회로 실크상 LED_04~07은 "RELAY 4CH" 표시등이나, 데이터맵에서는 Coil 3~6(LED)과 Coil 9~12(릴레이)가 독립임. 현재는 데이터맵대로 독립 제어함 | 릴레이 상태와 연동할지 결정 필요(데이터맵 동작 변경에 해당) |
+| 18 | WIZ550io 초기화 타이밍 | 드라이버(`active(True)`)는 RDY를 보지 않고 리셋 해제 후 160 ms 고정 대기 후 접근함. 커뮤니티 문서 권고는 "RDY High 후 ≥ 150 ms" [미확인] | RSTn·RDY 파형 측정, `test_eth.py`가 출력한 MAC과 모듈 라벨 MAC 비교 |
 
 ---
 
@@ -156,3 +160,54 @@ RTU 프레임을 길이 기반으로 분리한 이유: MicroPython 슈퍼루프�
 4. `mpremote cp modbus.py :modbus.py` → `mpremote cp tests/hw/test_eth.py :test_eth.py` → `mpremote run tests/hw/test_modbus.py`를 실행함
 5. PC에서 `python3 tools/mb_tcp_check.py 192.168.0.100`을 실행함. 실패 0건이어야 하고, 쓰기 시험 중 LED·릴레이·DAC가 실제로 바뀌어야 함
 6. RTU는 Modbus 마스터 프로그램(9600 8N1, Unit ID 255)으로 FC01~06·0F·10과 예외 응답을 확인함
+
+---
+
+## 8. 회로도 대조 결과 (IOTPLUS-SCH-RTU-MCU Rev 1.0)
+
+회로도만으로 판단한 결과임. 부품 정격 중 데이터시트로 확인하지 못한 값은 [미확인]으로 표시함. PCB 레이아웃(연면거리, 동박 면적)은 이 검토 범위가 아님.
+
+### 8.1 핀 결선 대조 (pins.csv 별칭 기준)
+
+| 별칭 | 회로도 넷 | 결과 |
+|---|---|---|
+| RELAY1~4 (PE7~PE10) | PE07_GPIO_1~PE10_GPIO_4 → R 1 kΩ → LTV-247 → MMBT3904 → HF32FA | 일치. High = ON |
+| LED_01~09 | PB13_LED_01, PB14_LED_02, PB15_LED_03, PD08_LED_04~PD13_LED_09 → R 1 kΩ → LED 캐소드(애노드 +3V3) | 일치. Low = 점등 |
+| SW1, SW2 (PD14, PD15) | PD14_SW1, PD15_SW2 → DIP SW1 → GND, 풀업 R7·R8 10 kΩ | 일치. ON = 0 |
+| ADC_VOLTAGE, ADC_CURRENT (PA0, PA1) | PA00_ADC1_CH0, PA01_ADC2_CH1 ← 버퍼 출력 | 일치 |
+| DAC_OUT (PA4) | PA04_DAC1_CH0 → 버퍼 입력 | 일치 |
+| UART2 (PA2/PA3) | PA02_UART2_TX → ADuM1412 VIA → MAX13488 DI, RO → VIC → PA03_UART2_RX | 일치. 채널 방향 정상 |
+| USART1 (PA9/PA10) | PA09_UART1_TX → CH340C RXD, CH340C TXD → PA10_UART1_RX | 일치. 교차 정상 |
+| WIZ_CS/SCK/MISO/MOSI | PA15, PC10, PC11, PC12 → WIZ550io A6, A5, A4, A3 | 일치 |
+| WIZ_INT/RST/READY | PC7 ← INTn(B5), PC8 → RSTn(B3), PC9 ← RDY(B2) | 일치 |
+
+LED 역할(실크 기준): LED_01 = FAULT(황색), LED_02~03 = RS485/RS232(녹색), LED_04~07 = RELAY 4CH(녹색), LED_08~09 = SPARE(청색). POWER(D2 적색)는 R10을 거쳐 GND에 연결되어 상시 점등됨.
+
+### 8.2 하드웨어 지적 사항
+
+| # | 등급 | 블록 | 내용 | 근거·계산 | 권고 |
+|---|---|---|---|---|---|
+| H1 | 높음 | RS485 | MAX13488 AutoDirection 사용 중인데 버스 바이어스 R21·R23이 DNP임 | AutoDirection은 DI가 Low→High로 바뀐 뒤 드라이버를 끄고 외부 풀업(A)·풀다운(B)으로 A−B > 200 mV를 유지해야 함. 현재 아이들 A−B ≈ 0 V. 10 kΩ 실장 시에도 5 × 120 / (20,000 + 120) = 29.8 mV로 부족 | R21·R23을 470~560 Ω으로 실장. 목표 250 mV 기준 상한: 종단 1개 1,140 Ω, 양단 종단 570 Ω. 560 Ω일 때 4.2 mA, 저항당 9.9 mW |
+| H2 | 높음 | 릴레이 전원 | 더미 부하 R26 110 Ω 0805 정격 초과 | P = 5.0² / 110 = 0.227 W, 0805 일반 정격 0.125 W의 182 % | 2010(0.75 W) 또는 2512(1 W)로 변경 |
+| M1 | 중간 | RS485 절연 전원 | U6 B0505LS-1W에 최소 부하가 없음 | 최소 부하 10 % 가정 시 20 mA 필요, 아이들 부하는 10 mA 미만 추정. MAX13488 권장 VCC 4.5~5.5 V [미확인] | 아이들 VISO 측정. 5.5 V 초과 시 더미 부하 약 250 Ω(1206) 추가 또는 안정화형 컨버터로 교체 |
+| M2 | 중간 | 릴레이 구동 | 포화 여유 부족 가능 | IF = (3.3 − 1.2) / 1 kΩ = 2.1 mA, Ib = (5.0 − 0.2 − 0.7) / 4.7 kΩ − 0.7 / 47 kΩ = 0.86 mA → 필요 CTR ≥ 41 %. 코일 360 mW(72 mA)면 강제 β 84로 MMBT3904 최소 hFE(50 mA에서 60) 초과 [코일·CTR 미확인] | 4채널 ON 시 Q1~Q4 VCE ≤ 0.3 V 확인. 여유 확보 시 R27/30/33/36 → 470 Ω, R28/31/34/37 → 2.2 kΩ |
+| M3 | 중간 | 아날로그 입력 | CN6 입력에 TVS·풀다운 없음 | 24 V 오결선 시 (24 − 5.5) / 1 kΩ ≈ 18 mA가 TLV9001 입력 보호 다이오드로 흐름. 단선 시 입력 부정 | 입력단 TVS와 풀다운(100 kΩ~1 MΩ) 추가 |
+| M4 | 중간 | WIZ550io | RDY 대기와 드라이버 고정 대기 불일치 가능 | 6절 #18 참조 | 파형 측정 후 판단 |
+| M5 | 중간 | MCU | VCAP_1·VCAP_2 각 4.7 µF | STM32F429 권장값 2.2 µF로 기억함 [미확인] | 데이터시트의 VCAP 조건 확인 |
+| L1 | 낮음 | RS485 | 종단 R22 120 Ω 고정 실장 | 버스 중간 노드로 설치 시 종단 과다 | 점퍼 선택형으로 변경 |
+| L2 | 낮음 | 부트 | BOOT0이 10 kΩ로 GND 고정, CH340C DTR/RTS 미연결 | ROM 부트로더 진입 불가. 복구는 SWD(CN1)로만 가능 | BOOT0 점퍼 또는 패드 추가 |
+| L3 | 낮음 | ADuM1412 | 미사용 입력 VIB(4)·VID(11)와 CTRL1·CTRL2 개방 | 입력 핀 개방은 권장되지 않음 [미확인] | 미사용 입력은 해당 측 GND로 고정 |
+| L4 | 낮음 | LED | D4(SPARE, 청색) 전류 약 0.4 mA 추정 | (3.3 − 2.9) / 1 kΩ [VF 미확인] | 밝기 확인 후 저항 조정 |
+| L5 | 낮음 | 전원 | LD1117 손실 약 0.46 W 추정 | +3V3 약 270 mA 추정(MCU 100, W5500 132, CH340 12, LED 13, 포토커플러 8 mA 등), (5.0 − 3.3) × 0.27 | 패키지·방열 동박 확인, 최대 부하에서 온도 측정 |
+
+확인된 정상 항목: CH340C 3.3 V 동작 결선(V3 = VCC), USB-C CC 5.1 kΩ, USBLC6, D+/D− 33 Ω, VBAT–VDD 직결(LSI 사용과 일치), VDDA 필터, RS485 보호(TBU-CA065, TISP4240, SM712), 릴레이 플라이백 다이오드 방향, GND/PGND·ISO_GND 절연 구조, AC 입력부(퓨즈 1 A, 바리스터 561, X2 0.22 µF, 공통모드 초크, HLK-10M05). +5V 부하는 약 0.75 A로 추정되어 HLK-10M05(2 A) 대비 여유가 있음.
+
+### 8.3 펌웨어 시험에 미치는 영향
+
+| 지적 | 증상 | 확인 수단 |
+|---|---|---|
+| H1 | RS485 수신 문자 깨짐, `RtuSlave.crc_errors`·`dropped` 증가 | `tests/hw/test_rs485.py`, `tests/hw/test_modbus.py` 종료 시 RTU 통계 |
+| M2 | 릴레이 미동작 또는 접점 채터링 | `tests/hw/test_do.py` 실행 중 VCE 측정 |
+| M3 | 입력 미연결 시 IR 값 변동 | `tests/hw/test_ai.py` 입력 개방 상태 출력 |
+| M4 | 링크 미확립, MAC 불일치 | `tests/hw/test_eth.py`의 WIZ_READY·MAC 출력 |
+
